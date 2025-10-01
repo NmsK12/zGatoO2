@@ -205,23 +205,27 @@ async def consult_dnit_async(dni_number):
             await asyncio.sleep(2)
             
             # Obtener mensajes recientes
-            messages = await client.get_messages(config.TARGET_BOT, limit=15)
+            messages = await client.get_messages(config.TARGET_BOT, limit=20)
             current_timestamp = time.time()
+            
+            logger.info(f"Revisando {len(messages)} mensajes totales...")
             
             # Filtrar mensajes que sean respuestas a nuestro comando específico
             relevant_messages = []
             for msg in messages:
-                if (msg.date.timestamp() > current_timestamp - 60 and 
-                    msg.from_id and 
-                    str(msg.from_id) == config.TARGET_BOT_ID):
+                if msg.date.timestamp() > current_timestamp - 120:  # Últimos 2 minutos
+                    logger.info(f"Mensaje reciente: {msg.text[:100]}... (from_id: {msg.from_id})")
                     
-                    # Verificar que sea respuesta a nuestro comando específico (más flexible)
-                    if (f"/dnit {dni_number}" in msg.text or 
-                        f"DNI ➾ {dni_number}" in msg.text or
-                        f"DNI ➾ {dni_number} -" in msg.text or
-                        (str(dni_number) in msg.text and ("RENIEC" in msg.text or "OLIMPO" in msg.text))):
-                        relevant_messages.append(msg)
-                        logger.info(f"Mensaje detectado: {msg.text[:50]}...")
+                    if (msg.from_id and 
+                        str(msg.from_id) == config.TARGET_BOT_ID):
+                        
+                        # Verificar que sea respuesta a nuestro comando específico (más flexible)
+                        if (f"/dnit {dni_number}" in msg.text or 
+                            f"DNI ➾ {dni_number}" in msg.text or
+                            f"DNI ➾ {dni_number} -" in msg.text or
+                            str(dni_number) in msg.text):
+                            relevant_messages.append(msg)
+                            logger.info(f"✅ Mensaje relevante detectado: {msg.text[:50]}...")
             
             logger.info(f"Revisando {len(relevant_messages)} mensajes relevantes para DNI detallado {dni_number}...")
             
