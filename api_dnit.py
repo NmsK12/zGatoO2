@@ -164,10 +164,26 @@ def consult_dnit_sync(dni_number):
             'error': 'Timeout: No se recibió respuesta en 35 segundos'
         }
     except Exception as e:
-        logger.error(f"Error consultando DNI detallado {dni_number}: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"Error consultando DNI detallado {dni_number}: {error_msg}")
+        
+        # Si es error de desconexión, intentar reconectar
+        if "disconnected" in error_msg.lower() or "connection" in error_msg.lower():
+            logger.info("Error de desconexión detectado, intentando reconectar...")
+            try:
+                restart_telethon()
+                # Esperar un poco para que se reconecte
+                time.sleep(3)
+                # Intentar la consulta nuevamente
+                future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number), loop)
+                result = future.result(timeout=35)
+                return result
+            except Exception as retry_error:
+                logger.error(f"Error en reintento: {str(retry_error)}")
+        
         return {
             'success': False,
-            'error': f'Error en la consulta: {str(e)}'
+            'error': f'Error en la consulta: {error_msg}'
         }
 
 async def consult_dnit_async(dni_number):
@@ -276,10 +292,26 @@ async def consult_dnit_async(dni_number):
         }
         
     except Exception as e:
-        logger.error(f"Error consultando DNI detallado {dni_number}: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"Error consultando DNI detallado {dni_number}: {error_msg}")
+        
+        # Si es error de desconexión, intentar reconectar
+        if "disconnected" in error_msg.lower() or "connection" in error_msg.lower():
+            logger.info("Error de desconexión detectado, intentando reconectar...")
+            try:
+                restart_telethon()
+                # Esperar un poco para que se reconecte
+                time.sleep(3)
+                # Intentar la consulta nuevamente
+                future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number), loop)
+                result = future.result(timeout=35)
+                return result
+            except Exception as retry_error:
+                logger.error(f"Error en reintento: {str(retry_error)}")
+        
         return {
             'success': False,
-            'error': f'Error en la consulta: {str(e)}'
+            'error': f'Error en la consulta: {error_msg}'
         }
 
 # Crear la aplicación Flask
@@ -359,6 +391,34 @@ def restart_telethon():
         # Reinicializar en un nuevo hilo
         init_telethon_thread()
         logger.info("Cliente de Telethon reiniciado")
+    except Exception as e:
+        logger.error(f"Error reiniciando Telethon: {str(e)}")
+
+def restart_telethon():
+    """Reinicia la conexión de Telethon."""
+    global client, loop
+    
+    try:
+        if client:
+            logger.info("Cerrando cliente anterior...")
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(client.disconnect()))
+            time.sleep(2)
+        
+        # Crear nuevo cliente
+        client = TelegramClient(
+            'telethon_session',
+            config.API_ID,
+            config.API_HASH
+        )
+        
+        # Iniciar en el loop existente
+        if loop and loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(client.start(), loop)
+            future.result(timeout=30)
+            logger.info("Cliente de Telethon reiniciado correctamente")
+        else:
+            logger.error("No hay loop de asyncio disponible para reiniciar")
+            
     except Exception as e:
         logger.error(f"Error reiniciando Telethon: {str(e)}")
 
