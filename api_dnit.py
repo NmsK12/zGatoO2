@@ -216,9 +216,13 @@ async def consult_dnit_async(dni_number):
                 if msg.date.timestamp() > current_timestamp - 120:  # Últimos 2 minutos
                     logger.info(f"Mensaje reciente: {msg.text[:100]}... (from_id: {msg.from_id})")
                     
-                    if (msg.from_id and 
-                        str(msg.from_id) == config.TARGET_BOT_ID):
-                        
+                    # Verificar que sea del bot (from_id puede ser None o el ID del bot)
+                    is_from_bot = (
+                        (msg.from_id and str(msg.from_id) == config.TARGET_BOT_ID) or
+                        msg.from_id is None  # Algunos mensajes del bot tienen from_id None
+                    )
+                    
+                    if is_from_bot:
                         # Verificar que sea respuesta a nuestro comando específico (más flexible)
                         if (f"/dnit {dni_number}" in msg.text or 
                             f"DNI ➾ {dni_number}" in msg.text or
