@@ -215,10 +215,13 @@ async def consult_dnit_async(dni_number):
                     msg.from_id and 
                     str(msg.from_id) == config.TARGET_BOT_ID):
                     
-                    # Verificar que sea respuesta a nuestro comando específico
+                    # Verificar que sea respuesta a nuestro comando específico (más flexible)
                     if (f"/dnit {dni_number}" in msg.text or 
-                        (f"DNI ➾ {dni_number}" in msg.text and "RENIEC ONLINE" in msg.text)):
+                        f"DNI ➾ {dni_number}" in msg.text or
+                        f"DNI ➾ {dni_number} -" in msg.text or
+                        (str(dni_number) in msg.text and ("RENIEC" in msg.text or "OLIMPO" in msg.text))):
                         relevant_messages.append(msg)
+                        logger.info(f"Mensaje detectado: {msg.text[:50]}...")
             
             logger.info(f"Revisando {len(relevant_messages)} mensajes relevantes para DNI detallado {dni_number}...")
             
