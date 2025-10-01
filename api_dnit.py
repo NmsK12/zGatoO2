@@ -398,18 +398,6 @@ def health_check():
         'service': 'WolfData DNI API - Detallado'
     })
 
-@app.route('/', methods=['GET'])
-def home():
-    """Página de inicio de la API."""
-    return jsonify({
-        'service': 'WolfData DNI API - Detallado',
-        'version': '1.0.0',
-        'endpoints': {
-            'dni_detallado': '/dnit?dni=12345678',
-            'health': '/health'
-        },
-        'description': 'API especializada para consultas detalladas de DNI con 4 imágenes (cara, huellas, firma)'
-    })
 
 def restart_telethon():
     """Reinicia el cliente de Telethon."""
