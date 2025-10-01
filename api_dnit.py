@@ -18,6 +18,7 @@ from io import BytesIO
 
 from flask import Flask, jsonify, request, send_file, make_response
 from PIL import Image
+from database import validate_api_key, init_database
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import MessageMediaPhoto
@@ -317,15 +318,46 @@ async def consult_dnit_async(dni_number):
 # Crear la aplicación Flask
 app = Flask(__name__)
 
+# Inicializar base de datos
+init_database()
+
+@app.route('/', methods=['GET'])
+def home():
+    """Página principal con información del servidor."""
+    return jsonify({
+        'servicio': 'API DNI Detallado',
+        'comando': '/dnit?dni=12345678&key=TU_API_KEY',
+        'info': '@zGatoO - @WinniePoohOFC - @choco_tete'
+    })
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint."""
+    return jsonify({
+        'status': 'OK',
+        'service': 'DNI Detallado API',
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/dnit', methods=['GET'])
 def dnit_result():
     """Endpoint para consultar DNI detallado."""
+    # Validar API Key
+    api_key = request.args.get('key') or request.headers.get('X-API-Key')
+    validation = validate_api_key(api_key)
+    
+    if not validation['valid']:
+        return jsonify({
+            'success': False,
+            'error': validation['error']
+        }), 401
+    
     dni = request.args.get('dni')
     
     if not dni:
         return jsonify({
             'success': False,
-            'error': 'Parámetro DNI requerido. Use: /dnit?dni=12345678'
+            'error': 'Parámetro DNI requerido. Use: /dnit?dni=12345678&key=TU_API_KEY'
         }), 400
     
     # Verificar formato del DNI
