@@ -378,8 +378,12 @@ def init_telethon_thread():
                 config.API_HASH
             )
             
-            loop.run_until_complete(client.start())
-            logger.info("Cliente de Telethon iniciado correctamente")
+            # Iniciar el cliente de forma asíncrona
+            async def start_client():
+                await client.start()
+                logger.info("Cliente de Telethon iniciado correctamente")
+            
+            loop.run_until_complete(start_client())
             
             # Mantener el loop corriendo
             loop.run_forever()
