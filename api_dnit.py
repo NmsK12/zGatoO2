@@ -205,15 +205,25 @@ async def consult_dnit_async(dni_number):
             await asyncio.sleep(2)
             
             # Obtener mensajes recientes
-            messages = await client.get_messages(config.TARGET_BOT, limit=10)
+            messages = await client.get_messages(config.TARGET_BOT, limit=15)
             current_timestamp = time.time()
-            new_messages = [msg for msg in messages if msg.date.timestamp() > current_timestamp - 60]
             
-            logger.info(f"Revisando {len(new_messages)} mensajes nuevos para DNI detallado {dni_number}...")
+            # Filtrar mensajes que sean respuestas a nuestro comando específico
+            relevant_messages = []
+            for msg in messages:
+                if (msg.date.timestamp() > current_timestamp - 60 and 
+                    msg.from_id and 
+                    str(msg.from_id) == config.TARGET_BOT_ID):
+                    
+                    # Verificar que sea respuesta a nuestro comando específico
+                    if (f"/dnit {dni_number}" in msg.text or 
+                        (f"DNI ➾ {dni_number}" in msg.text and "RENIEC ONLINE" in msg.text)):
+                        relevant_messages.append(msg)
             
-            for message in new_messages:
-                logger.info(f"Mensaje nuevo: {message.text[:100]}...")
-                logger.info(f"Texto limpio: {message.text.replace('`', '').replace('*', '').replace('**', '')[:100]}...")
+            logger.info(f"Revisando {len(relevant_messages)} mensajes relevantes para DNI detallado {dni_number}...")
+            
+            for message in relevant_messages:
+                logger.info(f"Mensaje relevante: {message.text[:100]}...")
                 
                 # Buscar mensajes de espera/procesamiento
                 if "espera" in message.text.lower() and "segundos" in message.text.lower():
