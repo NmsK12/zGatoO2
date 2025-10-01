@@ -18,7 +18,7 @@ from io import BytesIO
 
 from flask import Flask, jsonify, request, send_file, make_response
 from PIL import Image
-from database import validate_api_key, init_database, register_api_key, delete_api_key
+from database_postgres import validate_api_key, init_database, register_api_key, delete_api_key
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import MessageMediaPhoto

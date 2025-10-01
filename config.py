@@ -10,5 +10,8 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', 'tu_bot_token_aqui')
 # Nombre de usuario del bot al que le harás el puente
 TARGET_BOT = os.getenv('TARGET_BOT', '@OlimpoDataBot')
 
+# ID del bot objetivo (para filtrar mensajes)
+TARGET_BOT_ID = os.getenv('TARGET_BOT_ID', '2919287240')
+
 # Lista de IDs de usuarios administradores del bot puente
 ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '123456789').split(',')]
