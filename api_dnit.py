@@ -401,7 +401,18 @@ def restart_telethon():
     try:
         if client:
             logger.info("Cerrando cliente anterior...")
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(client.disconnect()))
+            try:
+                # Esperar a que se desconecte
+                future = client.disconnect()
+                if future and not future.done():
+                    # Esperar máximo 5 segundos
+                    import concurrent.futures
+                    try:
+                        future.result(timeout=5)
+                    except concurrent.futures.TimeoutError:
+                        logger.warning("Timeout cerrando cliente anterior")
+            except Exception as e:
+                logger.warning(f"Error cerrando cliente anterior: {e}")
             time.sleep(2)
         
         # Crear nuevo cliente
