@@ -18,7 +18,7 @@ from io import BytesIO
 
 from flask import Flask, jsonify, request, send_file, make_response
 from PIL import Image
-from database import validate_api_key, init_database
+from database import validate_api_key, init_database, register_api_key, delete_api_key
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import MessageMediaPhoto
@@ -338,6 +338,70 @@ def health():
         'service': 'DNI Detallado API',
         'timestamp': datetime.now().isoformat()
     })
+
+@app.route('/register-key', methods=['POST'])
+def register_key():
+    """Endpoint para registrar API Keys desde el panel de administración."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'key' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Datos de API Key requeridos'
+            }), 400
+        
+        api_key = data['key']
+        description = data.get('description', 'API Key desde panel')
+        expires_at = data.get('expires_at', (datetime.now() + timedelta(hours=1)).isoformat())
+        
+        if register_api_key(api_key, description, expires_at):
+            return jsonify({
+                'success': True,
+                'message': 'API Key registrada correctamente'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Error registrando API Key'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Error interno: {str(e)}'
+        }), 500
+
+@app.route('/delete-key', methods=['POST'])
+def delete_key():
+    """Endpoint para eliminar API Keys desde el panel de administración."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'key' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'API Key requerida'
+            }), 400
+        
+        api_key = data['key']
+        
+        if delete_api_key(api_key):
+            return jsonify({
+                'success': True,
+                'message': 'API Key eliminada correctamente'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Error eliminando API Key'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Error interno: {str(e)}'
+        }), 500
 
 @app.route('/dnit', methods=['GET'])
 def dnit_result():

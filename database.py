@@ -77,6 +77,12 @@ def validate_api_key(api_key):
         now = datetime.now()
         expires = datetime.fromisoformat(expires_at)
         
+        # Asegurar que ambas fechas tengan la misma zona horaria
+        if expires.tzinfo is not None:
+            now = now.replace(tzinfo=expires.tzinfo)
+        elif now.tzinfo is not None:
+            expires = expires.replace(tzinfo=now.tzinfo)
+        
         if now > expires:
             conn.close()
             return {
@@ -187,6 +193,45 @@ def revoke_api_key(api_key):
             
     except Exception as e:
         print(f"Error revocando API Key: {e}")
+        return False
+
+def register_api_key(api_key, description, expires_at):
+    """Registra una API Key desde el panel de administración"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Insertar o actualizar la API Key
+        cursor.execute('''
+            INSERT OR REPLACE INTO api_keys (key, description, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (api_key, description, expires_at, datetime.now().isoformat()))
+        
+        conn.commit()
+        conn.close()
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error registrando API Key: {e}")
+        return False
+
+def delete_api_key(api_key):
+    """Elimina una API Key desde el panel de administración"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Eliminar la API Key
+        cursor.execute('DELETE FROM api_keys WHERE key = ?', (api_key,))
+        
+        conn.commit()
+        conn.close()
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error eliminando API Key: {e}")
         return False
 
 if __name__ == "__main__":
