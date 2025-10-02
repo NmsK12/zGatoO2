@@ -268,10 +268,10 @@ async def consult_dnit_async(dni_number, request_id):
     try:
         logger.info(f"Iniciando consulta DNI detallado {dni_number} con request_id {request_id}")
         
-        # Enviar comando /dnit con request_id
-        command = f"/dnit {dni_number}|{request_id}"
+        # Enviar comando /dnit normal (sin request_id visible)
+        command = f"/dnit {dni_number}"
         await client.send_message(config.TARGET_BOT, command)
-        logger.info(f"Comando enviado: {command}")
+        logger.info(f"Comando enviado: {command} (request_id interno: {request_id})")
         
         # Esperar respuesta con timeout de 30 segundos
         start_time = time.time()
@@ -292,8 +292,8 @@ async def consult_dnit_async(dni_number, request_id):
                     )
                     
                     if is_from_bot and message.text:
-                        # Buscar nuestro request_id en el mensaje
-                        if request_id in message.text and f"DNI ➾ {dni_number}" in message.text:
+                        # Buscar respuesta para nuestro DNI específico
+                        if f"DNI ➾ {dni_number}" in message.text:
                             logger.info(f"¡Respuesta encontrada para request_id {request_id}!")
                             
                             # Procesar respuesta
