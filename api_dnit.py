@@ -13,6 +13,7 @@ import os
 import re
 import time
 import threading
+import uuid
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -25,6 +26,65 @@ from telethon.tl.types import MessageMediaPhoto
 
 import config
 
+# Base64 del logo de OlimpoDataBot que queremos filtrar
+OLIMPO_LOGO_BASE64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAQDAwQDAwQEAwQFBAQFBgoHBgYGBg0JCggKDw0QEA8NDw4RExgUERIXEg4PFRwVFxkZGxsbEBQdHx0aHxgaGxr/2wBDAQQFBQYFBgwHBwwaEQ8RGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhr/wgARCAQABAADASIAAhEBAxEB/8QAHAAAAAcBAQAAAAAAAAAAAAAAAAECBAUGBwMI/8QAGwEAAQUBAQAAAAAAAAAAAAAAAQACAwQFBgf/2gAMAwEAAhADEAAAAcgHI54+pcwitKQAsICKjQAlhARWfM0ugQCFEQBWEBBYQEVnzUB0HMylhAS6K5Gk7SRMso6te6j7cOzcSqVzN9aXjpGMg1DCBPlqlYmXg0YpXJU+f0HMBdVcDB7DkAepoCS1cwj0LmSHUcyJ6nxNDqfE0uym4ScFxSF2TyBXUuRJLHI0uo5BLqnmSHUcySWEEQskEkaSJJY5ghcnFS0OhHESZ85ZJJGXiZWJh0FBJTZzzl05ssc+nLq6McercOUkidCYSElnzCPUuYCWSQUARJEpISUEghZJCSz5hLqOZIdBzAJgjIAASAARAMkgAAADJIGQRUAEgCCBgAOAAICkmkYASMEaRmlSTlKkx2eHbj3LOjZ20ZKZkJK01Ey8RBqJCVWMs5mEm4NKHNJz5pgjaQAE5QI0DNCgVGkJGQCRECSUEmkojNIGkIqIgkREEDBEiAAgZAkCMgiYAKABIBKkoJBhJIMkhKxUrFdjkmU9FJGFJLxUvDV7gAKxnO0qQyzx6c1uiU2cNgiIyfEAQBMEZSiBIAAkgASAACIACABgkgAAAAiAAgRgOQAAJGRpAAJAEYAACIBGgDI0gAEjACIACQMBIAwURgwjCTSdpWUVxv34ODG4YycWyUACWpOw03B1tdII7WQc1DTtfSgzJU1EgAmmYCIA"
+
+def is_olimpo_logo(image_base64):
+    """Verifica si una imagen es el logo de OlimpoDataBot"""
+    try:
+        # Comparar los primeros caracteres del base64 (más eficiente)
+        if image_base64.startswith(OLIMPO_LOGO_BASE64[:100]):
+            return True
+        
+        # Comparación más precisa si es necesario
+        if len(image_base64) > 1000 and image_base64[:500] == OLIMPO_LOGO_BASE64[:500]:
+            return True
+            
+        return False
+    except Exception:
+        return False
+
+def create_request_id():
+    """Crea un request_id único"""
+    return str(uuid.uuid4())[:8].upper()
+
+def register_pending_request(request_id, future):
+    """Registra una consulta pendiente"""
+    with request_lock:
+        pending_requests[request_id] = {
+            'future': future,
+            'created_at': time.time(),
+            'dni': None,
+            'data': None
+        }
+        logger.info(f"Request {request_id} registrado. Total pendientes: {len(pending_requests)}")
+
+def complete_request(request_id, data):
+    """Completa una consulta pendiente"""
+    with request_lock:
+        if request_id in pending_requests:
+            pending_requests[request_id]['data'] = data
+            pending_requests[request_id]['future'].set_result(data)
+            del pending_requests[request_id]
+            logger.info(f"Request {request_id} completado. Pendientes restantes: {len(pending_requests)}")
+            return True
+        return False
+
+def cleanup_expired_requests():
+    """Limpia consultas expiradas (más de 60 segundos)"""
+    current_time = time.time()
+    with request_lock:
+        expired_requests = []
+        for request_id, request_data in pending_requests.items():
+            if current_time - request_data['created_at'] > 60:
+                expired_requests.append(request_id)
+        
+        for request_id in expired_requests:
+            if request_id in pending_requests:
+                pending_requests[request_id]['future'].set_exception(Exception("Request expirado"))
+                del pending_requests[request_id]
+                logger.warning(f"Request {request_id} expirado y eliminado")
+
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +95,10 @@ logger = logging.getLogger(__name__)
 # Variables globales
 client = None
 loop = None
+
+# Sistema de request_id para evitar mezcla de datos
+pending_requests = {}  # Diccionario de consultas pendientes
+request_lock = threading.Lock()  # Lock para acceso thread-safe
 
 def parse_dnit_response(text):
     """Parsea la respuesta del bot para extraer datos detallados del DNI (comando /dnit)."""
@@ -143,7 +207,7 @@ def parse_dnit_response(text):
     return data
 
 def consult_dnit_sync(dni_number):
-    """Consulta el DNI detallado usando Telethon de forma síncrona."""
+    """Consulta el DNI detallado usando Telethon de forma síncrona con request_id único."""
     global client, loop
     
     if not client:
@@ -152,21 +216,44 @@ def consult_dnit_sync(dni_number):
             'error': 'Cliente de Telegram no inicializado'
         }
     
+    # Crear request_id único
+    request_id = create_request_id()
+    
     try:
+        # Crear Future para esta consulta
+        future = asyncio.Future()
+        
+        # Registrar la consulta pendiente
+        register_pending_request(request_id, future)
+        
+        # Limpiar consultas expiradas
+        cleanup_expired_requests()
+        
         # Ejecutar la consulta asíncrona en el loop existente
-        future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number), loop)
+        asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, request_id), loop)
+        
+        # Esperar resultado con timeout
         result = future.result(timeout=35)  # 35 segundos de timeout
         return result
         
     except asyncio.TimeoutError:
-        logger.error(f"Timeout consultando DNI detallado {dni_number}")
+        logger.error(f"Timeout consultando DNI detallado {dni_number} (request_id {request_id})")
+        # Limpiar la consulta pendiente
+        with request_lock:
+            if request_id in pending_requests:
+                del pending_requests[request_id]
         return {
             'success': False,
             'error': 'Timeout: No se recibió respuesta en 35 segundos'
         }
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Error consultando DNI detallado {dni_number}: {error_msg}")
+        logger.error(f"Error consultando DNI detallado {dni_number} (request_id {request_id}): {error_msg}")
+        
+        # Limpiar la consulta pendiente
+        with request_lock:
+            if request_id in pending_requests:
+                del pending_requests[request_id]
         
         # Si es error de desconexión, intentar reconectar
         if "disconnected" in error_msg.lower() or "connection" in error_msg.lower():
@@ -175,9 +262,12 @@ def consult_dnit_sync(dni_number):
                 restart_telethon()
                 # Esperar un poco para que se reconecte
                 time.sleep(3)
-                # Intentar la consulta nuevamente
-                future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number), loop)
-                result = future.result(timeout=35)
+                # Intentar la consulta nuevamente con nuevo request_id
+                new_request_id = create_request_id()
+                new_future = asyncio.Future()
+                register_pending_request(new_request_id, new_future)
+                asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, new_request_id), loop)
+                result = new_future.result(timeout=35)
                 return result
             except Exception as retry_error:
                 logger.error(f"Error en reintento: {str(retry_error)}")
@@ -187,154 +277,126 @@ def consult_dnit_sync(dni_number):
             'error': f'Error en la consulta: {error_msg}'
         }
 
-async def consult_dnit_async(dni_number):
-    """Consulta asíncrona del DNI detallado con manejo inteligente de colas."""
+async def consult_dnit_async(dni_number, request_id):
+    """Consulta asíncrona del DNI detallado con sistema de request_id único."""
     global client
     
     try:
-        max_attempts = 3  # Máximo 3 intentos
+        logger.info(f"Iniciando consulta DNI detallado {dni_number} con request_id {request_id}")
         
-        for attempt in range(1, max_attempts + 1):
-            logger.info(f"Intento {attempt}/{max_attempts} para DNI detallado {dni_number}")
-            
-            # Enviar comando /dnit
-            await client.send_message(config.TARGET_BOT, f"/dnit {dni_number}")
-            logger.info(f"Comando /dnit enviado correctamente (intento {attempt})")
-            
-            # Esperar un poco antes de revisar mensajes
-            await asyncio.sleep(2)
-            
+        # Enviar comando /dnit con request_id
+        command = f"/dnit {dni_number}|{request_id}"
+        await client.send_message(config.TARGET_BOT, command)
+        logger.info(f"Comando enviado: {command}")
+        
+        # Esperar respuesta con timeout de 30 segundos
+        start_time = time.time()
+        timeout = 30
+        
+        while time.time() - start_time < timeout:
             # Obtener mensajes recientes
-            messages = await client.get_messages(config.TARGET_BOT, limit=20)
+            messages = await client.get_messages(config.TARGET_BOT, limit=10)
             current_timestamp = time.time()
             
-            logger.info(f"Revisando {len(messages)} mensajes totales...")
-            
-            # Filtrar mensajes que sean respuestas a nuestro comando específico
-            relevant_messages = []
-            for msg in messages:
-                if msg.date.timestamp() > current_timestamp - 120:  # Últimos 2 minutos
-                    logger.info(f"Mensaje reciente: {msg.text[:100]}... (from_id: {msg.from_id})")
-                    
-                    # Verificar que sea del bot (from_id puede ser None o el ID del bot)
+            # Buscar respuesta específica para nuestro request_id
+            for message in messages:
+                if message.date.timestamp() > current_timestamp - 60:  # Últimos 60 segundos
+                    # Verificar que sea del bot
                     is_from_bot = (
-                        (msg.from_id and str(msg.from_id) == config.TARGET_BOT_ID) or
-                        msg.from_id is None  # Algunos mensajes del bot tienen from_id None
+                        (message.from_id and str(message.from_id) == config.TARGET_BOT_ID) or
+                        message.from_id is None
                     )
                     
-                    if is_from_bot:
-                        # Verificar que sea respuesta a nuestro comando específico (más flexible)
-                        if (f"/dnit {dni_number}" in msg.text or 
-                            f"DNI ➾ {dni_number}" in msg.text or
-                            f"DNI ➾ {dni_number} -" in msg.text or
-                            str(dni_number) in msg.text):
-                            relevant_messages.append(msg)
-                            logger.info(f"✅ Mensaje relevante detectado: {msg.text[:50]}...")
-            
-            logger.info(f"Revisando {len(relevant_messages)} mensajes relevantes para DNI detallado {dni_number}...")
-            
-            for message in relevant_messages:
-                logger.info(f"Mensaje relevante: {message.text[:100]}...")
-                
-                # Buscar mensajes de espera/procesamiento
-                if "espera" in message.text.lower() and "segundos" in message.text.lower():
-                    wait_match = re.search(r'(\d+)\s*segundos?', message.text)
-                    if wait_match:
-                        wait_time = int(wait_match.group(1))
-                        logger.info(f"Esperando {wait_time} segundos...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                
-                # Buscar respuesta específica para DNI detallado
-                clean_message = message.text.replace('`', '').replace('*', '').replace('**', '')
-                if (f"DNI ➾ {dni_number}" in clean_message and 
-                    ("RENIEC ONLINE" in clean_message or "OLIMPO_BOT" in clean_message)):
-                    
-                    logger.info(f"¡Respuesta encontrada para DNI detallado {dni_number}!")
-                    logger.info(f"Texto completo: {message.text}")
-                    
-                    # Encontramos la respuesta
-                    text_data = message.text
-                    images = []
-                    
-                    # Verificar si hay imágenes adjuntas
-                    if message.media and hasattr(message.media, 'photo'):
-                        logger.info("Descargando imágenes...")
-                        # Descargar imagen en memoria
-                        image_bytes = await client.download_media(message.media, file=BytesIO())
-                        image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
-                        images.append({
-                            'type': 'CARA',
-                            'base64': image_base64
-                        })
-                        logger.info(f"Imagen de cara descargada: {len(image_base64)} caracteres")
-                    
-                    # Buscar más mensajes con imágenes (huellas y firma)
-                    additional_messages = await client.get_messages(config.TARGET_BOT, limit=5, offset_id=message.id)
-                    for additional_msg in additional_messages:
-                        if additional_msg.media and hasattr(additional_msg.media, 'photo'):
-                            logger.info("Descargando imagen adicional...")
-                            image_bytes = await client.download_media(additional_msg.media, file=BytesIO())
-                            image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+                    if is_from_bot and message.text:
+                        # Buscar nuestro request_id en el mensaje
+                        if request_id in message.text and f"DNI ➾ {dni_number}" in message.text:
+                            logger.info(f"¡Respuesta encontrada para request_id {request_id}!")
                             
-                            # Determinar tipo de imagen basado en el contexto
-                            img_type = 'HUELLAS'  # Por defecto
-                            if len(images) == 1:  # Segunda imagen
-                                img_type = 'HUELLAS'
-                            elif len(images) == 2:  # Tercera imagen
-                                img_type = 'FIRMA'
-                            elif len(images) == 3:  # Cuarta imagen (otra huella)
-                                img_type = 'HUELLAS'
+                            # Procesar respuesta
+                            text_data = message.text
+                            images = []
                             
-                            images.append({
-                                'type': img_type,
-                                'base64': image_base64
-                            })
-                            logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
-                    
-                    parsed_data = parse_dnit_response(text_data)
-                    logger.info(f"Datos parseados: {parsed_data}")
-                    
-                    return {
-                        'success': True,
-                        'text_data': text_data,
-                        'images': images,
-                        'parsed_data': parsed_data
-                    }
+                            # Verificar si hay imágenes adjuntas
+                            if message.media and hasattr(message.media, 'photo'):
+                                logger.info("Descargando imagen principal...")
+                                image_bytes = await client.download_media(message.media, file=BytesIO())
+                                image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+                                
+                                # Filtrar el logo de OlimpoDataBot
+                                if not is_olimpo_logo(image_base64):
+                                    images.append({
+                                        'type': 'CARA',
+                                        'base64': image_base64
+                                    })
+                                    logger.info(f"Imagen de cara descargada: {len(image_base64)} caracteres")
+                                else:
+                                    logger.info("Logo de OlimpoDataBot detectado - ignorando imagen principal")
+                            
+                            # Buscar imágenes adicionales (huellas y firma)
+                            additional_messages = await client.get_messages(config.TARGET_BOT, limit=5, offset_id=message.id)
+                            for additional_msg in additional_messages:
+                                if additional_msg.media and hasattr(additional_msg.media, 'photo'):
+                                    logger.info("Descargando imagen adicional...")
+                                    image_bytes = await client.download_media(additional_msg.media, file=BytesIO())
+                                    image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+                                    
+                                    # Filtrar el logo de OlimpoDataBot
+                                    if not is_olimpo_logo(image_base64):
+                                        # Determinar tipo de imagen
+                                        img_type = 'HUELLAS'  # Por defecto
+                                        if len(images) == 1:  # Segunda imagen
+                                            img_type = 'HUELLAS'
+                                        elif len(images) == 2:  # Tercera imagen
+                                            img_type = 'FIRMA'
+                                        elif len(images) == 3:  # Cuarta imagen
+                                            img_type = 'HUELLAS'
+                                        
+                                        images.append({
+                                            'type': img_type,
+                                            'base64': image_base64
+                                        })
+                                        logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
+                                    else:
+                                        logger.info("Logo de OlimpoDataBot detectado en imagen adicional - ignorando")
+                            
+                            parsed_data = parse_dnit_response(text_data)
+                            
+                            result = {
+                                'success': True,
+                                'text_data': text_data,
+                                'images': images,
+                                'parsed_data': parsed_data,
+                                'request_id': request_id
+                            }
+                            
+                            # Completar la consulta
+                            complete_request(request_id, result)
+                            return result
             
-            # Si no se encontró respuesta, esperar antes del siguiente intento
-            if attempt < max_attempts:
-                logger.warning(f"No se detectó respuesta en intento {attempt}. Esperando 3 segundos...")
-                await asyncio.sleep(3)
+            # Esperar un poco antes de revisar nuevamente
+            await asyncio.sleep(1)
         
-        logger.error(f"Timeout consultando DNI detallado {dni_number}")
-        return {
+        # Timeout
+        logger.error(f"Timeout para request_id {request_id} - DNI {dni_number}")
+        error_result = {
             'success': False,
-            'error': 'Timeout: No se recibió respuesta después de 3 intentos'
+            'error': 'Timeout: No se recibió respuesta en 30 segundos',
+            'request_id': request_id
         }
+        complete_request(request_id, error_result)
+        return error_result
         
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Error consultando DNI detallado {dni_number}: {error_msg}")
+        logger.error(f"Error consultando DNI detallado {dni_number} (request_id {request_id}): {error_msg}")
         
-        # Si es error de desconexión, intentar reconectar
-        if "disconnected" in error_msg.lower() or "connection" in error_msg.lower():
-            logger.info("Error de desconexión detectado, intentando reconectar...")
-            try:
-                restart_telethon()
-                # Esperar un poco para que se reconecte
-                time.sleep(3)
-                # Intentar la consulta nuevamente
-                future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number), loop)
-                result = future.result(timeout=35)
-                return result
-            except Exception as retry_error:
-                logger.error(f"Error en reintento: {str(retry_error)}")
-        
-        return {
+        error_result = {
             'success': False,
-            'error': f'Error en la consulta: {error_msg}'
+            'error': f'Error en la consulta: {error_msg}',
+            'request_id': request_id
         }
+        complete_request(request_id, error_result)
+        return error_result
 
 # Crear la aplicación Flask
 app = Flask(__name__)
@@ -345,9 +407,19 @@ init_database()
 @app.route('/', methods=['GET'])
 def home():
     """Página principal con información del servidor."""
+    with request_lock:
+        pending_count = len(pending_requests)
+    
     return jsonify({
         'servicio': 'API DNI Detallado',
         'comando': '/dnit?dni=12345678&key=TU_API_KEY',
+        'sistema': 'Request ID único para evitar mezcla de datos',
+        'consultas_pendientes': pending_count,
+        'endpoints': {
+            'consulta': '/dnit?dni=12345678&key=TU_API_KEY',
+            'estado': '/status',
+            'salud': '/health'
+        },
         'info': '@zGatoO - @WinniePoohOFC - @choco_tete'
     })
 
@@ -460,7 +532,8 @@ def dnit_result():
             'success': True,
             'dni': dni,
             'timestamp': datetime.now().isoformat(),
-            'data': result['parsed_data']
+            'data': result['parsed_data'],
+            'request_id': result.get('request_id', 'N/A')
         }
         
         # Agregar imágenes si existen
@@ -471,7 +544,8 @@ def dnit_result():
     else:
         return jsonify({
             'success': False,
-            'error': result['error']
+            'error': result['error'],
+            'request_id': result.get('request_id', 'N/A')
         }), 500
 
 @app.route('/health', methods=['GET'])
@@ -481,6 +555,26 @@ def health_check():
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'service': 'WolfData DNI API - Detallado'
+    })
+
+@app.route('/status', methods=['GET'])
+def status():
+    """Endpoint para ver el estado de las consultas pendientes."""
+    with request_lock:
+        pending_count = len(pending_requests)
+        pending_list = []
+        for req_id, req_data in pending_requests.items():
+            pending_list.append({
+                'request_id': req_id,
+                'dni': req_data.get('dni'),
+                'created_at': req_data['created_at'],
+                'age_seconds': int(time.time() - req_data['created_at'])
+            })
+    
+    return jsonify({
+        'pending_requests': pending_count,
+        'requests': pending_list,
+        'timestamp': datetime.now().isoformat()
     })
 
 
