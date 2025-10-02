@@ -220,17 +220,11 @@ def consult_dnit_sync(dni_number):
     request_id = create_request_id()
     
     try:
-        # Crear Future para esta consulta
-        future = asyncio.Future()
-        
-        # Registrar la consulta pendiente
-        register_pending_request(request_id, future)
-        
         # Limpiar consultas expiradas
         cleanup_expired_requests()
         
         # Ejecutar la consulta asíncrona en el loop existente
-        asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, request_id), loop)
+        future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, request_id), loop)
         
         # Esperar resultado con timeout
         result = future.result(timeout=35)  # 35 segundos de timeout
@@ -238,22 +232,14 @@ def consult_dnit_sync(dni_number):
         
     except asyncio.TimeoutError:
         logger.error(f"Timeout consultando DNI detallado {dni_number} (request_id {request_id})")
-        # Limpiar la consulta pendiente
-        with request_lock:
-            if request_id in pending_requests:
-                del pending_requests[request_id]
         return {
             'success': False,
-            'error': 'Timeout: No se recibió respuesta en 35 segundos'
+            'error': 'Timeout: No se recibió respuesta en 35 segundos',
+            'request_id': request_id
         }
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error consultando DNI detallado {dni_number} (request_id {request_id}): {error_msg}")
-        
-        # Limpiar la consulta pendiente
-        with request_lock:
-            if request_id in pending_requests:
-                del pending_requests[request_id]
         
         # Si es error de desconexión, intentar reconectar
         if "disconnected" in error_msg.lower() or "connection" in error_msg.lower():
@@ -264,9 +250,7 @@ def consult_dnit_sync(dni_number):
                 time.sleep(3)
                 # Intentar la consulta nuevamente con nuevo request_id
                 new_request_id = create_request_id()
-                new_future = asyncio.Future()
-                register_pending_request(new_request_id, new_future)
-                asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, new_request_id), loop)
+                new_future = asyncio.run_coroutine_threadsafe(consult_dnit_async(dni_number, new_request_id), loop)
                 result = new_future.result(timeout=35)
                 return result
             except Exception as retry_error:
@@ -369,8 +353,7 @@ async def consult_dnit_async(dni_number, request_id):
                                 'request_id': request_id
                             }
                             
-                            # Completar la consulta
-                            complete_request(request_id, result)
+                            # Retornar resultado directamente
                             return result
             
             # Esperar un poco antes de revisar nuevamente
@@ -383,7 +366,6 @@ async def consult_dnit_async(dni_number, request_id):
             'error': 'Timeout: No se recibió respuesta en 30 segundos',
             'request_id': request_id
         }
-        complete_request(request_id, error_result)
         return error_result
         
     except Exception as e:
@@ -395,7 +377,6 @@ async def consult_dnit_async(dni_number, request_id):
             'error': f'Error en la consulta: {error_msg}',
             'request_id': request_id
         }
-        complete_request(request_id, error_result)
         return error_result
 
 # Crear la aplicación Flask
