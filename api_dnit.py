@@ -276,15 +276,19 @@ async def consult_dnit_async(dni_number, request_id):
         # Esperar respuesta con timeout de 30 segundos
         start_time = time.time()
         timeout = 30
+        command_time = start_time
         
         while time.time() - start_time < timeout:
             # Obtener mensajes recientes
             messages = await client.get_messages(config.TARGET_BOT, limit=10)
             current_timestamp = time.time()
             
-            # Buscar respuesta específica para nuestro request_id
+            # Buscar respuesta específica para nuestro DNI
             for message in messages:
-                if message.date.timestamp() > current_timestamp - 60:  # Últimos 60 segundos
+                # Solo mensajes posteriores a nuestro comando
+                if message.date.timestamp() > command_time:
+                    logger.info(f"[{request_id}] Revisando mensaje: {message.text[:100]}... (from_id: {message.from_id})")
+                    
                     # Verificar que sea del bot
                     is_from_bot = (
                         (message.from_id and str(message.from_id) == config.TARGET_BOT_ID) or
@@ -292,8 +296,11 @@ async def consult_dnit_async(dni_number, request_id):
                     )
                     
                     if is_from_bot and message.text:
-                        # Buscar respuesta para nuestro DNI específico
-                        if f"DNI ➾ {dni_number}" in message.text:
+                        # Buscar respuesta para nuestro DNI específico (más flexible)
+                        if (f"DNI ➾ {dni_number}" in message.text or 
+                            f"DNI ➾ {dni_number} -" in message.text or
+                            f"DNI ➾ {dni_number} |" in message.text or
+                            str(dni_number) in message.text):
                             logger.info(f"¡Respuesta encontrada para request_id {request_id}!")
                             
                             # Procesar respuesta
