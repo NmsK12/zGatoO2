@@ -56,7 +56,7 @@ def validate_api_key(api_key):
     if not api_key:
         return {
             'valid': False,
-            'error': 'API Key requerida'
+            'error': '🚫 ¡Ey! ¿Dónde está tu API Key? No puedes entrar sin ella. Contacta a @zGatoO - @WinniePoohOFC - @choco_tete para conseguir una'
         }
     
     try:
@@ -76,7 +76,7 @@ def validate_api_key(api_key):
             conn.close()
             return {
                 'valid': False,
-                'error': 'API Key invalida'
+                'error': '🤡 ¿En serio? Esa API Key no existe ni en mis sueños más locos. Contacta a @zGatoO - @WinniePoohOFC - @choco_tete para que te den una de verdad'
             }
         
         key, expires_at, created_at, description, usage_count, created_by, time_remaining = row
@@ -91,7 +91,7 @@ def validate_api_key(api_key):
             conn.close()
             return {
                 'valid': False,
-                'error': 'Tu acceso expiro. Escribele a @zGatoO para renovarlo.'
+                'error': '⏰ ¡Ups! Tu API Key ya se fue de vacaciones. Contacta a @zGatoO - @WinniePoohOFC - @choco_tete para renovarla (y no seas tan lento la próxima vez)'
             }
         
         # Actualizar tiempo restante en la base de datos (sin restar por uso)
