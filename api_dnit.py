@@ -48,6 +48,21 @@ def create_request_id():
     """Crea un request_id único"""
     return str(uuid.uuid4())[:8].upper()
 
+def check_connection():
+    """Verifica si el cliente de Telegram está conectado y reconecta si es necesario."""
+    global client, loop
+    
+    try:
+        if not client or not client.is_connected():
+            logger.warning("Cliente de Telegram desconectado, intentando reconectar...")
+            restart_telethon()
+            time.sleep(3)  # Esperar a que se reconecte
+            return client and client.is_connected()
+        return True
+    except Exception as e:
+        logger.error(f"Error verificando conexión: {str(e)}")
+        return False
+
 def register_pending_request(request_id, future):
     """Registra una consulta pendiente"""
     with request_lock:
@@ -210,10 +225,11 @@ def consult_dnit_sync(dni_number):
     """Consulta el DNI detallado usando Telethon de forma síncrona con request_id único."""
     global client, loop
     
-    if not client:
+    # Verificar conexión y reconectar si es necesario
+    if not check_connection():
         return {
             'success': False,
-            'error': 'Cliente de Telegram no inicializado'
+            'error': 'No se pudo establecer conexión con Telegram'
         }
     
     # Crear request_id único
