@@ -583,21 +583,6 @@ def status():
 
 
 def restart_telethon():
-    """Reinicia el cliente de Telethon."""
-    global client, loop
-    try:
-        if client:
-            client.disconnect()
-        if loop:
-            loop.close()
-        
-        # Reinicializar en un nuevo hilo
-        init_telethon_thread()
-        logger.info("Cliente de Telethon reiniciado")
-    except Exception as e:
-        logger.error(f"Error reiniciando Telethon: {str(e)}")
-
-def restart_telethon():
     """Reinicia la conexión de Telethon."""
     global client, loop
     
@@ -605,33 +590,23 @@ def restart_telethon():
         if client:
             logger.info("Cerrando cliente anterior...")
             try:
-                # Esperar a que se desconecte
-                future = client.disconnect()
-                if future and not future.done():
-                    # Esperar máximo 5 segundos
-                    import concurrent.futures
+                # Cerrar cliente de forma segura
+                if loop and not loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(client.disconnect(), loop)
                     try:
                         future.result(timeout=5)
-                    except concurrent.futures.TimeoutError:
-                        logger.warning("Timeout cerrando cliente anterior")
+                    except Exception as e:
+                        logger.warning(f"Error cerrando cliente anterior: {e}")
+                else:
+                    logger.warning("No hay loop disponible para desconectar cliente")
             except Exception as e:
                 logger.warning(f"Error cerrando cliente anterior: {e}")
+            client = None
             time.sleep(2)
         
-        # Crear nuevo cliente
-        client = TelegramClient(
-            'telethon_session',
-            config.API_ID,
-            config.API_HASH
-        )
-        
-        # Iniciar en el loop existente
-        if loop and loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(client.start(), loop)
-            future.result(timeout=30)
-            logger.info("Cliente de Telethon reiniciado correctamente")
-        else:
-            logger.error("No hay loop de asyncio disponible para reiniciar")
+        # Reinicializar en un nuevo hilo
+        init_telethon_thread()
+        logger.info("Cliente de Telethon reiniciado correctamente")
             
     except Exception as e:
         logger.error(f"Error reiniciando Telethon: {str(e)}")
