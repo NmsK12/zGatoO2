@@ -349,32 +349,54 @@ async def consult_dnit_async(dni_number, request_id):
                                 else:
                                     logger.info("Logo de OlimpoDataBot detectado - ignorando imagen principal")
                             
-                            # Buscar imágenes adicionales (huellas y firma)
-                            additional_messages = await client.get_messages(config.TARGET_BOT, limit=5, offset_id=message.id)
-                            for additional_msg in additional_messages:
-                                if additional_msg.media and hasattr(additional_msg.media, 'photo'):
-                                    logger.info("Descargando imagen adicional...")
-                                    image_bytes = await client.download_media(additional_msg.media, file=BytesIO())
-                                    image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
-                                    
-                                    # Filtrar el logo de OlimpoDataBot
-                                    if not is_olimpo_logo(image_base64):
-                                        # Determinar tipo de imagen
-                                        img_type = 'HUELLAS'  # Por defecto
-                                        if len(images) == 1:  # Segunda imagen
-                                            img_type = 'HUELLAS'
-                                        elif len(images) == 2:  # Tercera imagen
-                                            img_type = 'FIRMA'
-                                        elif len(images) == 3:  # Cuarta imagen
-                                            img_type = 'HUELLAS'
+                            # Buscar imágenes adicionales (huellas y firma) - esperar más tiempo
+                            logger.info("Buscando imágenes adicionales...")
+                            
+                            # Esperar hasta 10 segundos para que lleguen todas las imágenes
+                            max_wait_time = 10
+                            wait_start = time.time()
+                            processed_image_ids = set()
+                            
+                            while time.time() - wait_start < max_wait_time and len(images) < 4:
+                                await asyncio.sleep(1)  # Esperar 1 segundo entre búsquedas
+                                
+                                # Buscar en mensajes más recientes
+                                additional_messages = await client.get_messages(config.TARGET_BOT, limit=15)
+                                for additional_msg in additional_messages:
+                                    # Solo mensajes posteriores a nuestro comando y diferentes al mensaje principal
+                                    if (additional_msg.date.timestamp() > command_time and 
+                                        additional_msg.id != message.id and
+                                        additional_msg.id not in processed_image_ids and
+                                        additional_msg.media and hasattr(additional_msg.media, 'photo')):
                                         
-                                        images.append({
-                                            'type': img_type,
-                                            'base64': image_base64
-                                        })
-                                        logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
-                                    else:
-                                        logger.info("Logo de OlimpoDataBot detectado en imagen adicional - ignorando")
+                                        logger.info("Descargando imagen adicional...")
+                                        image_bytes = await client.download_media(additional_msg.media, file=BytesIO())
+                                        image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+                                        
+                                        # Filtrar el logo de OlimpoDataBot
+                                        if not is_olimpo_logo(image_base64):
+                                            # Determinar tipo de imagen basado en el orden
+                                            img_type = 'HUELLAS'  # Por defecto
+                                            if len(images) == 1:  # Segunda imagen (firma)
+                                                img_type = 'FIRMA'
+                                            elif len(images) == 2:  # Tercera imagen (huella 1)
+                                                img_type = 'HUELLAS'
+                                            elif len(images) == 3:  # Cuarta imagen (huella 2)
+                                                img_type = 'HUELLAS'
+                                            
+                                            images.append({
+                                                'type': img_type,
+                                                'base64': image_base64
+                                            })
+                                            processed_image_ids.add(additional_msg.id)
+                                            logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
+                                        else:
+                                            logger.info("Logo de OlimpoDataBot detectado en imagen adicional - ignorando")
+                                            processed_image_ids.add(additional_msg.id)
+                                
+                                logger.info(f"Imágenes encontradas hasta ahora: {len(images)}/4")
+                            
+                            logger.info(f"Búsqueda de imágenes completada. Total encontradas: {len(images)}")
                             
                             parsed_data = parse_dnit_response(text_data)
                             
