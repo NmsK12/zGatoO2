@@ -110,6 +110,7 @@ logger = logging.getLogger(__name__)
 # Variables globales
 client = None
 loop = None
+is_ready = False  # Flag global para saber si el bot ya está listo
 
 # Sistema de request_id para evitar mezcla de datos
 pending_requests = {}  # Diccionario de consultas pendientes
@@ -223,13 +224,22 @@ def parse_dnit_response(text):
 
 def consult_dnit_sync(dni_number):
     """Consulta el DNI detallado usando Telethon de forma síncrona con request_id único."""
-    global client, loop
+    global client, loop, is_ready
     
-    # Verificar conexión y reconectar si es necesario
-    if not check_connection():
+    # Verificar que el cliente esté disponible y listo
+    if not is_ready or not client or not loop:
+        logger.error("Cliente de Telethon no está disponible o no está listo")
         return {
             'success': False,
-            'error': 'No se pudo establecer conexión con Telegram'
+            'error': 'Cliente de Telegram no disponible. Intenta nuevamente en unos segundos.'
+        }
+    
+    # Verificar conexión
+    if not client.is_connected():
+        logger.warning("Cliente desconectado, esperando reconexión automática...")
+        return {
+            'success': False,
+            'error': 'Cliente de Telegram desconectado. Intenta nuevamente en unos segundos.'
         }
     
     # Crear request_id único
@@ -612,11 +622,9 @@ def restart_telethon():
         logger.error(f"Error reiniciando Telethon: {str(e)}")
 
 def init_telethon_thread():
-    """Inicializa Telethon en un hilo separado."""
-    global client, loop
-    
+    """Inicializa Telethon en un hilo separado con reconexión automática."""
     def run_telethon():
-        global client, loop
+        global client, loop, is_ready
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -627,15 +635,35 @@ def init_telethon_thread():
                 config.API_HASH
             )
             
-            # Iniciar el cliente de forma asíncrona
-            async def start_client():
+            async def start_telegram():
+                global is_ready
                 await client.start()
-                logger.info("Cliente de Telethon iniciado correctamente")
+                is_ready = True
+                logger.info("✅ Cliente de Telethon iniciado correctamente")
+                
+                # Lazo infinito para reconexión automática
+                while True:
+                    try:
+                        if not client.is_connected():
+                            logger.warning("⚠️ Detectada desconexión. Reconectando...")
+                            try:
+                                await client.connect()
+                                logger.info("🔁 Reconectado correctamente")
+                            except Exception as e:
+                                logger.error(f"❌ Error reconectando: {e}")
+                        else:
+                            # Ping de keepalive si está conectado
+                            try:
+                                await client.send_read_acknowledge("me")
+                                logger.debug("📡 Ping enviado para mantener conexión activa")
+                            except Exception:
+                                pass
+                        await asyncio.sleep(5)  # verifica cada 5 segundos
+                    except Exception as e:
+                        logger.error(f"❌ Error durante reconexión automática: {e}")
+                        await asyncio.sleep(10)  # espera más tiempo si hay error
             
-            loop.run_until_complete(start_client())
-            
-            # Mantener el loop corriendo
-            loop.run_forever()
+            loop.run_until_complete(start_telegram())
             
         except Exception as e:
             logger.error(f"Error inicializando Telethon: {str(e)}")
@@ -645,7 +673,7 @@ def init_telethon_thread():
     thread.start()
     
     # Esperar un poco para que se inicialice
-    time.sleep(3)
+    time.sleep(5)
 
 def main():
     """Función principal."""
