@@ -44,6 +44,54 @@ def is_olimpo_logo(image_base64):
     except Exception:
         return False
 
+def detect_image_type(image_base64, current_count):
+    """Detecta el tipo de imagen basándose en el contenido y orden."""
+    try:
+        # Decodificar la imagen
+        image_data = base64.b64decode(image_base64)
+        image = Image.open(BytesIO(image_data))
+        
+        # Convertir a RGB si es necesario
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Obtener dimensiones
+        width, height = image.size
+        
+        # Análisis básico de la imagen
+        aspect_ratio = width / height
+        
+        # Imagen de cara: suele ser más alta que ancha (retrato)
+        if aspect_ratio < 0.8 and height > 200:
+            return 'CARA'
+        
+        # Imagen de firma: suele ser más ancha que alta (paisaje) y más pequeña
+        elif aspect_ratio > 1.5 and width < 400:
+            return 'FIRMA'
+        
+        # Imagen de huellas: suele ser más cuadrada o ligeramente rectangular
+        elif 0.7 <= aspect_ratio <= 1.3:
+            return 'HUELLAS'
+        
+        # Por defecto, basarse en el orden si no se puede determinar
+        else:
+            if current_count == 0:
+                return 'CARA'
+            elif current_count == 1:
+                return 'FIRMA'
+            else:
+                return 'HUELLAS'
+                
+    except Exception as e:
+        logger.error(f"Error detectando tipo de imagen: {e}")
+        # Fallback basado en el orden
+        if current_count == 0:
+            return 'CARA'
+        elif current_count == 1:
+            return 'FIRMA'
+        else:
+            return 'HUELLAS'
+
 def create_request_id():
     """Crea un request_id único"""
     return str(uuid.uuid4())[:8].upper()
@@ -375,14 +423,8 @@ async def consult_dnit_async(dni_number, request_id):
                                         
                                         # Filtrar el logo de OlimpoDataBot
                                         if not is_olimpo_logo(image_base64):
-                                            # Determinar tipo de imagen basado en el orden de llegada
-                                            img_type = 'HUELLAS'  # Por defecto
-                                            if len(images) == 1:  # Segunda imagen (firma)
-                                                img_type = 'FIRMA'
-                                            elif len(images) == 2:  # Tercera imagen (huella 1)
-                                                img_type = 'HUELLAS'
-                                            elif len(images) == 3:  # Cuarta imagen (huella 2)
-                                                img_type = 'HUELLAS'
+                                            # Determinar tipo de imagen basado en el contenido real
+                                            img_type = detect_image_type(image_base64, len(images))
                                             
                                             images.append({
                                                 'type': img_type,
