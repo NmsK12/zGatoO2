@@ -32,12 +32,12 @@ OLIMPO_LOGO_BASE64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAQDAwQDAwQEAwQFBAQFBgoHBg
 def is_olimpo_logo(image_base64):
     """Verifica si una imagen es el logo de OlimpoDataBot"""
     try:
-        # Comparar los primeros caracteres del base64 (más eficiente)
-        if image_base64.startswith(OLIMPO_LOGO_BASE64[:100]):
+        # Solo filtrar si es exactamente el logo conocido
+        if image_base64.startswith(OLIMPO_LOGO_BASE64[:200]):
             return True
         
-        # Comparación más precisa si es necesario
-        if len(image_base64) > 1000 and image_base64[:500] == OLIMPO_LOGO_BASE64[:500]:
+        # Verificar tamaño muy pequeño (probablemente logo)
+        if len(image_base64) < 5000:  # Imágenes muy pequeñas
             return True
             
         return False
@@ -57,29 +57,35 @@ def detect_image_type(image_base64, current_count):
         
         # Obtener dimensiones
         width, height = image.size
-        
-        # Análisis básico de la imagen
         aspect_ratio = width / height
         
-        # Imagen de cara: suele ser más alta que ancha (retrato)
-        if aspect_ratio < 0.8 and height > 200:
+        logger.info(f"Analizando imagen: {width}x{height}, aspect_ratio: {aspect_ratio:.2f}, current_count: {current_count}")
+        
+        # Imagen de cara: suele ser más alta que ancha (retrato) y más grande
+        if aspect_ratio < 0.9 and height > 150:
+            logger.info("Detectado como CARA (retrato, alta)")
             return 'CARA'
         
         # Imagen de firma: suele ser más ancha que alta (paisaje) y más pequeña
-        elif aspect_ratio > 1.5 and width < 400:
+        elif aspect_ratio > 1.3 and width < 500:
+            logger.info("Detectado como FIRMA (paisaje, ancha)")
             return 'FIRMA'
         
         # Imagen de huellas: suele ser más cuadrada o ligeramente rectangular
-        elif 0.7 <= aspect_ratio <= 1.3:
+        elif 0.8 <= aspect_ratio <= 1.2:
+            logger.info("Detectado como HUELLAS (cuadrada)")
             return 'HUELLAS'
         
         # Por defecto, basarse en el orden si no se puede determinar
         else:
             if current_count == 0:
+                logger.info("Fallback: CARA (primera imagen)")
                 return 'CARA'
             elif current_count == 1:
+                logger.info("Fallback: FIRMA (segunda imagen)")
                 return 'FIRMA'
             else:
+                logger.info("Fallback: HUELLAS (imagen adicional)")
                 return 'HUELLAS'
                 
     except Exception as e:
@@ -389,11 +395,14 @@ async def consult_dnit_async(dni_number, request_id):
                                 
                                 # Filtrar el logo de OlimpoDataBot
                                 if not is_olimpo_logo(image_base64):
+                                    # Determinar tipo de imagen basado en el contenido real
+                                    img_type = detect_image_type(image_base64, len(images))
+                                    
                                     images.append({
-                                        'type': 'CARA',
+                                        'type': img_type,
                                         'base64': image_base64
                                     })
-                                    logger.info(f"Imagen de cara descargada: {len(image_base64)} caracteres")
+                                    logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
                                 else:
                                     logger.info("Logo de OlimpoDataBot detectado - ignorando imagen principal")
                             
