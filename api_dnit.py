@@ -44,59 +44,9 @@ def is_olimpo_logo(image_base64):
     except Exception:
         return False
 
-def detect_image_type(image_base64, current_count):
-    """Detecta el tipo de imagen basándose en el contenido y orden."""
-    try:
-        # Decodificar la imagen
-        image_data = base64.b64decode(image_base64)
-        image = Image.open(BytesIO(image_data))
-        
-        # Convertir a RGB si es necesario
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        # Obtener dimensiones
-        width, height = image.size
-        aspect_ratio = width / height
-        
-        logger.info(f"Analizando imagen: {width}x{height}, aspect_ratio: {aspect_ratio:.2f}, current_count: {current_count}")
-        
-        # Imagen de cara: suele ser más alta que ancha (retrato) o casi cuadrada pero grande
-        if (aspect_ratio < 0.95 and height > 150) or (0.9 <= aspect_ratio <= 1.1 and height > 180):
-            logger.info("Detectado como CARA (retrato o cuadrada grande)")
-            return 'CARA'
-        
-        # Imagen de firma: suele ser más ancha que alta (paisaje) y más pequeña
-        elif aspect_ratio > 1.3 and width < 500:
-            logger.info("Detectado como FIRMA (paisaje, ancha)")
-            return 'FIRMA'
-        
-        # Imagen de huellas: suele ser más cuadrada o ligeramente rectangular pero más pequeña
-        elif 0.8 <= aspect_ratio <= 1.2 and height <= 200:
-            logger.info("Detectado como HUELLAS (cuadrada pequeña)")
-            return 'HUELLAS'
-        
-        # Por defecto, basarse en el orden si no se puede determinar
-        else:
-            if current_count == 0:
-                logger.info("Fallback: CARA (primera imagen)")
-                return 'CARA'
-            elif current_count == 1:
-                logger.info("Fallback: FIRMA (segunda imagen)")
-                return 'FIRMA'
-            else:
-                logger.info("Fallback: HUELLAS (imagen adicional)")
-                return 'HUELLAS'
-                
-    except Exception as e:
-        logger.error(f"Error detectando tipo de imagen: {e}")
-        # Fallback basado en el orden
-        if current_count == 0:
-            return 'CARA'
-        elif current_count == 1:
-            return 'FIRMA'
-        else:
-            return 'HUELLAS'
+def get_image_number(current_count):
+    """Retorna el número de imagen basado en el orden (1, 2, 3, 4)."""
+    return str(current_count + 1)
 
 def create_request_id():
     """Crea un request_id único"""
@@ -376,6 +326,15 @@ async def consult_dnit_async(dni_number, request_id):
                     )
                     
                     if is_from_bot and message.text:
+                        # Verificar si es mensaje de "No se encontró información"
+                        if "[✖️] No se encontro informacion para los datos ingresados." in message.text:
+                            logger.info(f"Mensaje de 'No se encontró información' detectado para request_id {request_id}")
+                            return {
+                                'success': False,
+                                'error': 'No se encontró información para los datos ingresados.',
+                                'request_id': request_id
+                            }
+                        
                         # Buscar respuesta para nuestro DNI específico (más flexible)
                         if (f"DNI ➾ {dni_number}" in message.text or 
                             f"DNI ➾ {dni_number} -" in message.text or
@@ -395,14 +354,14 @@ async def consult_dnit_async(dni_number, request_id):
                                 
                                 # Filtrar el logo de OlimpoDataBot
                                 if not is_olimpo_logo(image_base64):
-                                    # Determinar tipo de imagen basado en el contenido real
-                                    img_type = detect_image_type(image_base64, len(images))
+                                    # Numerar imagen basado en el orden
+                                    img_number = get_image_number(len(images))
                                     
                                     images.append({
-                                        'type': img_type,
+                                        'type': img_number,
                                         'base64': image_base64
                                     })
-                                    logger.info(f"Imagen {img_type} descargada: {len(image_base64)} caracteres")
+                                    logger.info(f"Imagen {img_number} descargada: {len(image_base64)} caracteres")
                                 else:
                                     logger.info("Logo de OlimpoDataBot detectado - ignorando imagen principal")
                             
@@ -432,15 +391,15 @@ async def consult_dnit_async(dni_number, request_id):
                                         
                                         # Filtrar el logo de OlimpoDataBot
                                         if not is_olimpo_logo(image_base64):
-                                            # Determinar tipo de imagen basado en el contenido real
-                                            img_type = detect_image_type(image_base64, len(images))
+                                            # Numerar imagen basado en el orden
+                                            img_number = get_image_number(len(images))
                                             
                                             images.append({
-                                                'type': img_type,
+                                                'type': img_number,
                                                 'base64': image_base64
                                             })
                                             processed_image_ids.add(msg.id)
-                                            logger.info(f"Imagen {img_type} capturada: {len(image_base64)} caracteres")
+                                            logger.info(f"Imagen {img_number} capturada: {len(image_base64)} caracteres")
                                         else:
                                             logger.info("Logo de OlimpoDataBot detectado - ignorando")
                                             processed_image_ids.add(msg.id)
