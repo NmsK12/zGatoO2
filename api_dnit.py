@@ -349,26 +349,27 @@ async def consult_dnit_async(dni_number, request_id):
                                 else:
                                     logger.info("Logo de OlimpoDataBot detectado - ignorando imagen principal")
                             
-                            # Capturar todas las imágenes que lleguen en los próximos 4 segundos
-                            logger.info("Capturando todas las imágenes adicionales...")
+                            # Usar iter_messages para capturar TODAS las imágenes nuevas
+                            logger.info("Capturando todas las imágenes usando iter_messages...")
                             
                             # Marca de tiempo para capturar solo mensajes nuevos
                             capture_start_time = time.time()
-                            max_capture_time = 4  # 4 segundos para capturar todas las imágenes
+                            max_capture_time = 6  # 6 segundos para capturar todas las imágenes
                             processed_image_ids = set()
                             
-                            # Capturar todas las imágenes que lleguen en el intervalo
-                            while (time.time() - capture_start_time) < max_capture_time:
-                                # Obtener mensajes recientes
-                                recent_messages = await client.get_messages(config.TARGET_BOT, limit=20)
-                                
-                                for msg in recent_messages:
+                            try:
+                                # Usar iter_messages para obtener mensajes en tiempo real
+                                async for msg in client.iter_messages(config.TARGET_BOT, limit=50):
+                                    # Solo procesar si no hemos excedido el tiempo
+                                    if (time.time() - capture_start_time) > max_capture_time:
+                                        break
+                                    
                                     # Solo mensajes posteriores a nuestro comando y con imágenes
                                     if (msg.date.timestamp() > command_time and 
                                         msg.id not in processed_image_ids and
                                         msg.media and hasattr(msg.media, 'photo')):
                                         
-                                        logger.info("Descargando imagen capturada...")
+                                        logger.info("Descargando imagen capturada con iter_messages...")
                                         image_bytes = await client.download_media(msg.media, file=BytesIO())
                                         image_base64 = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
                                         
@@ -392,10 +393,17 @@ async def consult_dnit_async(dni_number, request_id):
                                         else:
                                             logger.info("Logo de OlimpoDataBot detectado - ignorando")
                                             processed_image_ids.add(msg.id)
-                                
-                                # Esperar un poco antes de la siguiente búsqueda
-                                await asyncio.sleep(0.5)
-                                logger.info(f"Imágenes capturadas hasta ahora: {len(images)}/4")
+                                    
+                                    # Si ya tenemos 4 imágenes, salir
+                                    if len(images) >= 4:
+                                        logger.info("¡4 imágenes capturadas! Terminando búsqueda.")
+                                        break
+                                    
+                                    # Pequeña pausa para no sobrecargar
+                                    await asyncio.sleep(0.1)
+                                    
+                            except Exception as e:
+                                logger.error(f"Error en iter_messages: {e}")
                             
                             logger.info(f"Captura completada. Total imágenes: {len(images)}")
                             
