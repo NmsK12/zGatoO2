@@ -36,8 +36,8 @@ def is_olimpo_logo(image_base64):
         if image_base64.startswith(OLIMPO_LOGO_BASE64[:200]):
             return True
         
-        # Verificar tamaño muy pequeño (probablemente logo)
-        if len(image_base64) < 5000:  # Imágenes muy pequeñas
+        # Verificar tamaño muy pequeño (probablemente logo) - ser más permisivo
+        if len(image_base64) < 3000:  # Solo imágenes muy pequeñas
             return True
             
         return False
@@ -61,9 +61,9 @@ def detect_image_type(image_base64, current_count):
         
         logger.info(f"Analizando imagen: {width}x{height}, aspect_ratio: {aspect_ratio:.2f}, current_count: {current_count}")
         
-        # Imagen de cara: suele ser más alta que ancha (retrato) y más grande
-        if aspect_ratio < 0.9 and height > 150:
-            logger.info("Detectado como CARA (retrato, alta)")
+        # Imagen de cara: suele ser más alta que ancha (retrato) o casi cuadrada pero grande
+        if (aspect_ratio < 0.95 and height > 150) or (0.9 <= aspect_ratio <= 1.1 and height > 180):
+            logger.info("Detectado como CARA (retrato o cuadrada grande)")
             return 'CARA'
         
         # Imagen de firma: suele ser más ancha que alta (paisaje) y más pequeña
@@ -71,9 +71,9 @@ def detect_image_type(image_base64, current_count):
             logger.info("Detectado como FIRMA (paisaje, ancha)")
             return 'FIRMA'
         
-        # Imagen de huellas: suele ser más cuadrada o ligeramente rectangular
-        elif 0.8 <= aspect_ratio <= 1.2:
-            logger.info("Detectado como HUELLAS (cuadrada)")
+        # Imagen de huellas: suele ser más cuadrada o ligeramente rectangular pero más pequeña
+        elif 0.8 <= aspect_ratio <= 1.2 and height <= 200:
+            logger.info("Detectado como HUELLAS (cuadrada pequeña)")
             return 'HUELLAS'
         
         # Por defecto, basarse en el orden si no se puede determinar
